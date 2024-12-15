@@ -128,26 +128,42 @@ app.post('/forgot-password', (req, res) => {
     return res.status(400).json({ success: false, message: 'Email is required' });
   }
 
-  const otp = Math.floor(100000 + Math.random() * 900000);
-  const otpExpiration = new Date(Date.now() + 10 * 60 * 1000); // OTP expires in 10 minutes
+ 
+  const otp = Math.floor(100000 + Math.random() * 900000); // Generate a 6-digit OTP
 
-  const query = `
-    UPDATE users
-    SET otp = ?, otp_expired_at = ?
-    WHERE email = ?;
-  `;
-
-  db.query(query, [otp, otpExpiration, email], (err, result) => {
+  db.query('SELECT * FROM users WHERE email = ?', [email], (err, results) => {
     if (err) {
-      console.error('Database Error:', err);
+      console.error('Database error:', err.message);
       return res.status(500).json({ success: false, message: 'Database error' });
     }
 
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ success: false, message: 'Email not found' });
+    if (results.length === 0) {
+      return res.status(404).json({ success: false, message: 'Email not registered' });
     }
 
-    res.status(200).json({ success: true, message: 'OTP sent to email' });
+    db.query('INSERT INTO otps (email, otp) VALUES (?, ?) ON DUPLICATE KEY UPDATE otp = ?', [email, otp, otp], (err) => {
+      if (err) {
+        console.error('Database error during OTP update:', err.message);
+        return res.status(500).json({ success: false, message: 'Database error' });
+      }
+      
+      const mailOptions = {
+        from: 'ubsafespace@gmail.com',
+        to: email,
+        subject: 'Password Reset OTP',
+        text: `Your OTP for password reset is: ${otp}`,
+      };
+
+      transporter.sendMail(mailOptions, (error, info) => {
+        if (error) {
+          console.error('Error while sending email:', error);
+          return res.status(500).json({ success: false, message: 'Failed to send email', error: error.message });
+        }
+
+        console.log('Email sent successfully:', info.response);
+        res.status(200).json({ success: true, message: 'OTP sent successfully' });
+      });
+    });
   });
 });
 
